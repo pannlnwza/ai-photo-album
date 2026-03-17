@@ -37,12 +37,12 @@ def load_gallery():
     if os.path.exists(GALLERY_FILE):
         with open(GALLERY_FILE, 'r') as f:
             return json.load(f)
-    return []
+    return {'albums': []}
 
 
-def save_gallery(gallery):
+def save_gallery(data):
     with open(GALLERY_FILE, 'w') as f:
-        json.dump(gallery, f)
+        json.dump(data, f)
 
 
 def load_model():
@@ -102,8 +102,46 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/upload', methods=['POST'])
-def upload_file():
+@app.route('/albums', methods=['GET'])
+def get_albums():
+    data = load_gallery()
+    return jsonify(data['albums'])
+
+
+@app.route('/albums', methods=['POST'])
+def create_album():
+    body = request.get_json()
+    name = body.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Album name is required'}), 400
+
+    data = load_gallery()
+    album = {
+        'id': uuid.uuid4().hex[:8],
+        'name': name,
+        'created_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'images': [],
+    }
+    data['albums'].insert(0, album)
+    save_gallery(data)
+    return jsonify(album)
+
+
+@app.route('/albums/<string:album_id>', methods=['DELETE'])
+def delete_album(album_id):
+    data = load_gallery()
+    data['albums'] = [a for a in data['albums'] if a['id'] != album_id]
+    save_gallery(data)
+    return jsonify({'success': True})
+
+
+@app.route('/albums/<string:album_id>/upload', methods=['POST'])
+def upload_file(album_id):
+    data = load_gallery()
+    album = next((a for a in data['albums'] if a['id'] == album_id), None)
+    if not album:
+        return jsonify({'error': 'Album not found'}), 404
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file selected'}), 400
 
@@ -122,7 +160,6 @@ def upload_file():
 
             os.remove(filepath)
 
-            # Save to gallery
             entry = {
                 'id': uuid.uuid4().hex[:8],
                 'filename': file.filename,
@@ -130,9 +167,8 @@ def upload_file():
                 'image': image_base64,
                 'uploaded_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
             }
-            gallery = load_gallery()
-            gallery.insert(0, entry)
-            save_gallery(gallery)
+            album['images'].insert(0, entry)
+            save_gallery(data)
 
             return jsonify({'success': True, **entry})
         except Exception as e:
@@ -142,16 +178,15 @@ def upload_file():
     return jsonify({'error': 'Invalid file type. Please upload an image file.'}), 400
 
 
-@app.route('/gallery')
-def get_gallery():
-    return jsonify(load_gallery())
+@app.route('/albums/<string:album_id>/images/<string:image_id>', methods=['DELETE'])
+def delete_image(album_id, image_id):
+    data = load_gallery()
+    album = next((a for a in data['albums'] if a['id'] == album_id), None)
+    if not album:
+        return jsonify({'error': 'Album not found'}), 404
 
-
-@app.route('/gallery/<string:image_id>', methods=['DELETE'])
-def delete_image(image_id):
-    gallery = load_gallery()
-    gallery = [img for img in gallery if img['id'] != image_id]
-    save_gallery(gallery)
+    album['images'] = [img for img in album['images'] if img['id'] != image_id]
+    save_gallery(data)
     return jsonify({'success': True})
 
 
